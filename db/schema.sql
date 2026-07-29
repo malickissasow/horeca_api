@@ -1,0 +1,86 @@
+-- HORECA AFRICA 2026 Database Schema
+
+CREATE DATABASE IF NOT EXISTS horeca_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE horeca_db;
+
+-- 1. Users Table
+CREATE TABLE IF NOT EXISTS users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(191) NOT NULL UNIQUE,
+  password VARCHAR(255) NOT NULL,
+  name VARCHAR(191) NOT NULL,
+  company VARCHAR(191) NOT NULL,
+  role ENUM('SuperAdmin', 'Professionnel', 'Exposant', 'Sponsor', 'Hosted Buyer', 'Étudiant') NOT NULL DEFAULT 'Professionnel',
+  sector VARCHAR(100) NOT NULL DEFAULT 'Hôtellerie',
+  phone VARCHAR(50) DEFAULT NULL,
+  student_job VARCHAR(191) DEFAULT NULL,
+  cv_attached BOOLEAN DEFAULT FALSE,
+  cv_url VARCHAR(255) DEFAULT NULL,
+  is_super_admin BOOLEAN DEFAULT FALSE,
+  looking_for TEXT DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2. Meetings Table
+CREATE TABLE IF NOT EXISTS meetings (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  from_user_id INT NOT NULL,
+  to_user_id INT NOT NULL,
+  day VARCHAR(50) NOT NULL DEFAULT 'Mercredi 25 nov',
+  time_slot VARCHAR(50) NOT NULL DEFAULT '09h30',
+  status ENUM('PENDING', 'ACCEPTED', 'REFUSED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+  table_number INT NOT NULL DEFAULT 1,
+  note TEXT DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (from_user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (to_user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 3. Contacts Table
+CREATE TABLE IF NOT EXISTS contacts (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  first_name VARCHAR(100) NOT NULL,
+  last_name VARCHAR(100) NOT NULL,
+  email VARCHAR(191) NOT NULL,
+  phone VARCHAR(50) DEFAULT NULL,
+  company VARCHAR(191) DEFAULT NULL,
+  message TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 4. Jobs Table
+CREATE TABLE IF NOT EXISTS jobs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  company_id INT NOT NULL,
+  title VARCHAR(191) NOT NULL,
+  contract_type VARCHAR(50) NOT NULL DEFAULT 'CDI',
+  location VARCHAR(191) NOT NULL DEFAULT 'Dakar, Sénégal',
+  sector VARCHAR(100) NOT NULL DEFAULT 'Hôtellerie',
+  description TEXT NOT NULL,
+  requirements TEXT DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (company_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 5. Job Applications Table
+CREATE TABLE IF NOT EXISTS job_applications (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  job_id INT NOT NULL,
+  applicant_id INT NOT NULL,
+  message TEXT DEFAULT NULL,
+  status ENUM('PENDING', 'SHORTLISTED', 'REJECTED', 'HIRED') NOT NULL DEFAULT 'PENDING',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+  FOREIGN KEY (applicant_id) REFERENCES users(id) ON DELETE CASCADE
+-- 6. Messages Table (1-to-1 B2B Chat)
+CREATE TABLE IF NOT EXISTS messages (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  from_user_id INT NOT NULL,
+  to_user_id INT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (from_user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (to_user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
