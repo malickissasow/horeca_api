@@ -68,9 +68,19 @@ app.get('/api/health', (req, res) => {
     status: 'OK',
     version: '1.0.0',
     service: 'HORECA AFRICA 2026 API',
-    message: 'HORECA AFRICA API is running smoothly',
+    message: 'HORECA AFRICA API is running smoothly test issa',
     timestamp: new Date().toISOString()
   });
+});
+
+// DB Connection Diagnostic Check
+app.get('/api/db-check', async (req, res) => {
+  try {
+    const [rows] = await pool.promise().query('SHOW TABLES');
+    res.json({ success: true, tables: rows, config: { host: process.env.DB_HOST, user: process.env.DB_USER, db: process.env.DB_NAME } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, code: err.code, config: { host: process.env.DB_HOST, user: process.env.DB_USER, db: process.env.DB_NAME } });
+  }
 });
 
 // API Routes
