@@ -1,0 +1,41 @@
+name: Deploy API to api.horecafrica.org (Hostinger FTP)
+
+on:
+  push:
+    branches: [ main, production ]
+    paths:
+      - 'src/**'
+      - 'routes/**'
+      - 'services/**'
+      - 'controllers/**'
+      - 'models/**'
+      - 'migrations/**'
+      - 'config/**'
+      - 'db/**'
+      - 'package.json'
+      - 'server.js'
+      - '.github/workflows/**'
+      - '.github/scripts/**'
+  workflow_dispatch:
+
+jobs:
+  deploy-api-horecafrica:
+    name: 🚀 Isolated Deploy API to api.horecafrica.org
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: 📤 FTP Deploy API Backend via Python Script
+        run: python3 .github/scripts/deploy_api_ftp.py
+
+      - name: Deployment Summary
+        run: echo "🎉 API Application deployed strictly to https://api.horecafrica.org"
