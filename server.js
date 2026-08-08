@@ -77,10 +77,11 @@ app.get('/api/health', (req, res) => {
 // DB Connection Diagnostic Check
 app.get('/api/db-check', async (req, res) => {
   try {
-    const [rows] = await pool.promise().query('SHOW TABLES');
-    res.json({ success: true, tables: rows, config: { host: process.env.DB_HOST, user: process.env.DB_USER, db: process.env.DB_NAME } });
+    const [tables] = await pool.promise().query('SHOW TABLES');
+    const [users] = await pool.promise().query('SELECT id, email, name, role FROM users');
+    res.json({ success: true, tables, users });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message, code: err.code, config: { host: process.env.DB_HOST, user: process.env.DB_USER, db: process.env.DB_NAME } });
+    res.status(500).json({ success: false, error: err.message, code: err.code });
   }
 });
 
