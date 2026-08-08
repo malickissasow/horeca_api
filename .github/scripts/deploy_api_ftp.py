@@ -21,7 +21,8 @@ def connect_ftp():
         context.verify_mode = ssl.CERT_NONE
 
         ftps = ftplib.FTP_TLS(context=context)
-        ftps.connect(FTP_HOST, FTP_PORT, timeout=30)
+        ftps.trust_server_pasv_ipv4_address = True
+        ftps.connect(FTP_HOST, FTP_PORT, timeout=60)
         ftps.login(FTP_USER, FTP_PASS)
         ftps.prot_p()  # Enforce encrypted data channel for cloud runners
         ftps.set_pasv(True)
@@ -30,7 +31,8 @@ def connect_ftp():
     except Exception as e:
         print(f"⚠️ FTPS connection failed ({e}), falling back to Plain FTP...")
         ftp = ftplib.FTP()
-        ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
+        ftp.trust_server_pasv_ipv4_address = True
+        ftp.connect(FTP_HOST, FTP_PORT, timeout=60)
         ftp.login(FTP_USER, FTP_PASS)
         ftp.set_pasv(True)
         print("✅ Connected & Logged in via Plain FTP!")
