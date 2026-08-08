@@ -45,7 +45,13 @@ io.on('connection', (socket) => {
 
 // Health Check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'HORECA AFRICA API is running smoothly', time: new Date().toISOString() });
+  res.json({
+    status: 'OK',
+    version: '1.0.0',
+    service: 'HORECA AFRICA 2026 API',
+    message: 'HORECA AFRICA API is running smoothly',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // API Routes
