@@ -8,7 +8,7 @@ FTP_PORT = int(os.getenv("FTP_PORT", "21"))
 FTP_USER = os.getenv("FTP_USER", "u208608546.api.horecafrica.org")
 FTP_PASS = os.getenv("FTP_PASS", "B5@9ll@c")
 LOCAL_DIR = os.getenv("LOCAL_DIR", ".")
-REMOTE_DIR = os.getenv("REMOTE_DIR", "public_html")
+REMOTE_DIR = os.getenv("REMOTE_DIR", "nodejs")
 
 EXCLUDE_DIRS = {".git", ".github", "node_modules", "uploads", "tests", "tmp"}
 EXCLUDE_FILES = {".env", ".env.local", ".env.production", ".env.example", ".DS_Store", "README.md"}
@@ -53,7 +53,7 @@ def ensure_remote_dir(ftp, remote_path):
 def deploy():
     ftp = connect_ftp()
 
-    print(f"📤 Deploying API backend files to {REMOTE_DIR}/ (preserving uploads & .env)...")
+    print(f"📤 Deploying API backend files to Hostinger Passenger dir: {REMOTE_DIR}/ (preserving uploads & .env)...")
     file_count = 0
 
     for root, dirs, files in os.walk(LOCAL_DIR):
@@ -89,7 +89,7 @@ def deploy():
         with open("restart_trigger.txt", "rb") as f_tmp:
             ftp.storbinary("STOR restart.txt", f_tmp)
         os.remove("restart_trigger.txt")
-        print("🔄 Touched tmp/restart.txt to restart Hostinger Node.js process!")
+        print("🔄 Touched tmp/restart.txt to restart Hostinger Node.js Passenger process!")
     except Exception as e:
         print(f"Note on restart trigger: {e}")
 
