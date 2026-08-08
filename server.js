@@ -43,6 +43,25 @@ io.on('connection', (socket) => {
   });
 });
 
+// Root Welcome Route
+app.get('/', (req, res) => {
+  res.json({
+    name: 'HORECA AFRICA 2026 API',
+    status: 'ONLINE',
+    version: '1.0.0',
+    documentation: 'https://api.horecafrica.org/api/health',
+    endpoints: {
+      health: '/api/health',
+      auth: '/api/auth',
+      users: '/api/users',
+      meetings: '/api/meetings',
+      jobs: '/api/jobs',
+      admin: '/api/admin',
+      payment: '/api/payment'
+    }
+  });
+});
+
 // Health Check
 app.get('/api/health', (req, res) => {
   res.json({
