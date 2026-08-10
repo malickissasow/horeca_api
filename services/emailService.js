@@ -107,7 +107,8 @@ async function sendOrderReceiptEmail(order) {
         
         <div class="box">
           <p style="margin: 0 0 6px 0; font-weight: bold; color: #ea580c;">📌 Récapitulatif de votre Demande :</p>
-          <p style="margin: 2px 0;">• <strong>Référence :</strong> ${order.reference}</p>
+          <p style="margin: 2px 0;">• <strong>Compte Participant :</strong> ${order.customer_email}</p>
+          <p style="margin: 2px 0;">• <strong>Référence Commande :</strong> ${order.reference}</p>
           <p style="margin: 2px 0;">• <strong>Mode de Règlement :</strong> ${order.payment_method === 'MANUAL_OM' ? 'Orange Money (+221 77 542 82 35)' : 'Wave (+221 77 542 82 35)'}</p>
           <p style="margin: 2px 0;">• <strong>Référence Renseignée :</strong> ${order.transaction_ref || 'N/A'}</p>
         </div>
@@ -118,7 +119,7 @@ async function sendOrderReceiptEmail(order) {
         </p>
 
         <p style="color: #334155; font-size: 14px;">
-          ⏳ <strong>Prochaine étape :</strong> Dès que l'administrateur confirme la réception du paiement, vous recevrez automatiquement un second email contenant votre <strong>Facture Acquittée Officielle (PDF)</strong> et l'activation de vos <strong>Badges & Accès B2B</strong>.
+          ⏳ <strong>Prochaine étape :</strong> Dès que l'administrateur confirme la réception du paiement, vous recevrez automatiquement un second email d'activation avec votre <strong>Facture Acquittée Officielle (PDF)</strong> et le bouton de connexion directe à votre Espace Participant.
         </p>
       </div>
       <div class="footer">
@@ -148,7 +149,7 @@ async function sendAdminNewOrderNotification(order) {
   <p>Un client vient d'effectuer une demande de paiement manuel :</p>
   <ul>
     <li><strong>Client :</strong> ${order.customer_name} (${order.company_name || 'Particulier'})</li>
-    <li><strong>Email :</strong> ${order.customer_email}</li>
+    <li><strong>Email Participant :</strong> ${order.customer_email}</li>
     <li><strong>Téléphone :</strong> ${order.customer_phone || 'Non renseigné'}</li>
     <li><strong>Pack :</strong> ${order.pack_name}</li>
     <li><strong>Montant :</strong> ${formattedAmount}</li>
@@ -176,6 +177,7 @@ function generateInvoiceHtml(order) {
   });
 
   const formattedAmount = Number(order.amount).toLocaleString('fr-FR') + ' FCFA';
+  const loginUrl = `https://app.horecafrica.org/?login=1&email=${encodeURIComponent(order.customer_email)}`;
 
   return `
   <!DOCTYPE html>
@@ -197,7 +199,7 @@ function generateInvoiceHtml(order) {
       .table th { background: #f8fafc; color: #475569; text-align: left; padding: 12px; font-size: 12px; text-transform: uppercase; border-bottom: 2px solid #e2e8f0; }
       .table td { padding: 14px 12px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
       .total-row td { font-weight: bold; font-size: 16px; color: #033498; border-top: 2px solid #e2e8f0; }
-      .access-box { background: #ecfdf5; border: 2px solid #10b981; border-radius: 8px; padding: 18px; margin-bottom: 20px; }
+      .access-box { background: #ecfdf5; border: 2px solid #10b981; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
       .footer { background: #f8fafc; padding: 20px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; }
     </style>
   </head>
@@ -206,7 +208,7 @@ function generateInvoiceHtml(order) {
       <div class="header">
         <h1>HORECA AFRICA 2026</h1>
         <p>Salon International de l'Hôtellerie, Restauration & Alimentation</p>
-        <span class="badge-paid">✓ PAIEMENT VALIDÉ & FACTURE ACQUITTÉE</span>
+        <span class="badge-paid">✓ PAIEMENT VALIDÉ & ACCÈS ACTIVÉS</span>
       </div>
       <div class="content">
         <div class="info-grid">
@@ -253,14 +255,16 @@ function generateInvoiceHtml(order) {
         <!-- ACCESS ACTIVATED BOX -->
         <div class="access-box">
           <h3 style="margin: 0 0 8px 0; color: #047857; font-size: 16px;">
-            🔑 VOS ACCÈS & BADGES EXPOTANTS SONT ACTIVÉS !
+            🔑 VOS ACCÈS & BADGES PARTICIPANTS SONT ACTIVÉS !
           </h3>
           <p style="margin: 0 0 10px 0; font-size: 13.5px; color: #065f46; line-height: 1.5;">
-            Félicitations ! L'administration HORECA AFRICA a validé votre règlement. Vos droits d'accès au salon et à l'espace B2B sont désormais ouverts.
+            Félicitations ! L'administration HORECA AFRICA a validé votre règlement.<br>
+            • <strong>Identifiant de Connexion :</strong> <code>${order.customer_email}</code><br>
+            Vos droits d'accès au salon, à votre badge QR officiel et à la plateforme de Matchmaking B2B sont ouverts.
           </p>
-          <div style="text-align: center; margin-top: 14px;">
-            <a href="https://app.horecafrica.org/" style="background: #033498; color: white; text-decoration: none; padding: 10px 22px; border-radius: 6px; font-weight: bold; display: inline-block; font-size: 14px;">
-              🌐 Accéder à l'Espace Pro & Badges
+          <div style="text-align: center; margin-top: 16px;">
+            <a href="${loginUrl}" style="background: #033498; color: white; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; display: inline-block; font-size: 14px; box-shadow: 0 4px 12px rgba(3,52,152,0.25);">
+              🌐 Me Connecter à Mon Compte Participant (${order.customer_email})
             </a>
           </div>
         </div>
@@ -286,7 +290,7 @@ async function sendInvoiceEmail(order) {
 
   return await sendMailWithFallback({
     to: order.customer_email,
-    subject: `[✓ ACCÈS VALIDÉS & Facture ${invoiceNum}] Votre Réservation HORECA AFRICA 2026 est Confirmée !`,
+    subject: `[✓ ACCÈS VALIDÉS & Facture ${invoiceNum}] Votre Compte Participant HORECA AFRICA 2026 est Confirmé !`,
     html: htmlContent
   });
 }
