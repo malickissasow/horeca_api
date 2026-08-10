@@ -3,7 +3,6 @@ import sys
 import ftplib
 import ssl
 import time
-import socket
 
 FTP_HOST = os.getenv("FTP_HOST", "92.113.24.18")
 FTP_PORT = int(os.getenv("FTP_PORT", "21"))
@@ -16,9 +15,8 @@ EXCLUDE_DIRS = {".git", ".github", "node_modules", "uploads", "tests", "tmp"}
 EXCLUDE_FILES = {".env", ".env.local", ".env.production", ".env.example", ".DS_Store", "README.md"}
 
 def connect_ftp():
-    print(f"🚀 Connecting to FTP {FTP_HOST}:{FTP_PORT}...")
+    print(f"🚀 Connecting to Hostinger FTP {FTP_HOST}:{FTP_PORT} via FTPS (Explicit TLS)...")
     for attempt in range(1, 4):
-        # Try FTPS (Explicit TLS)
         try:
             print(f"🔒 Attempt {attempt}/3: Connecting via FTPS (TLS)...")
             context = ssl.create_default_context()
@@ -27,7 +25,7 @@ def connect_ftp():
 
             ftps = ftplib.FTP_TLS(context=context)
             ftps.trust_server_pasv_ipv4_address = True
-            ftps.connect(FTP_HOST, FTP_PORT, timeout=20)
+            ftps.connect(FTP_HOST, FTP_PORT, timeout=45)
             ftps.login(FTP_USER, FTP_PASS)
             ftps.prot_p()  # Enforce encrypted data channel
             ftps.set_pasv(True)
@@ -35,23 +33,9 @@ def connect_ftp():
             return ftps
         except Exception as e:
             print(f"⚠️ FTPS Attempt {attempt} failed ({e})")
-
-        # Try Plain FTP
-        try:
-            print(f"⚡ Attempt {attempt}/3: Connecting via Plain FTP...")
-            ftp = ftplib.FTP()
-            ftp.trust_server_pasv_ipv4_address = True
-            ftp.connect(FTP_HOST, FTP_PORT, timeout=20)
-            ftp.login(FTP_USER, FTP_PASS)
-            ftp.set_pasv(True)
-            print("✅ Connected & Logged in via Plain FTP!")
-            return ftp
-        except Exception as e:
-            print(f"⚠️ Plain FTP Attempt {attempt} failed ({e})")
-
-        if attempt < 3:
-            print("⏳ Waiting 3 seconds before next retry...")
-            time.sleep(3)
+            if attempt < 3:
+                print("⏳ Waiting 4 seconds before next retry...")
+                time.sleep(4)
 
     raise RuntimeError(f"❌ Failed to connect to Hostinger FTP {FTP_HOST} after 3 attempts.")
 
@@ -70,7 +54,7 @@ def ensure_remote_dir(ftp, remote_path):
                 print(f"Warning creating {current}: {e}")
 
 def safe_upload_file(ftp, local_file, file_name):
-    # Try deleting any leftover Hostinger .in.filename. lock file
+    # Delete any leftover Hostinger .in.filename. temp lock file
     try:
         ftp.delete(f".in.{file_name}.")
     except Exception:
