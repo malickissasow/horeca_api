@@ -17,17 +17,35 @@ const paymentRoutes = require('./routes/paymentRoutes');
 
 const app = express();
 const server = http.createServer(app);
+
+// Global CORS Middleware Guarantee
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization']
+}));
+
+app.use(express.json());
+
+// Socket.io Setup with CORS
 const io = new Server(server, {
   cors: {
     origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
   }
 });
 
 const PORT = process.env.PORT || 5000;
-
-app.use(cors());
-app.use(express.json());
 
 // Serve uploads static folder
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -69,7 +87,7 @@ app.get('/api/health', (req, res) => {
     status: 'OK',
     version: '1.0.0',
     service: 'HORECA AFRICA 2026 API',
-    message: 'HORECA AFRICA API is running smoothly test issa',
+    message: 'HORECA AFRICA API is running smoothly',
     timestamp: new Date().toISOString()
   });
 });
@@ -95,17 +113,20 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/payment', paymentRoutes);
 
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error('Unhandled API Error:', err);
+  res.status(500).json({ error: err.message || 'Erreur interne du serveur' });
+});
+
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`❌ Le port ${PORT} est déjà utilisé par un autre processus Node ou service.`);
-    console.error(`💡 Pour libérer le port, exécutez la commande : lsof -i :${PORT} | grep LISTEN | awk '{print $2}' | xargs kill -9`);
   } else {
     console.error('❌ Erreur serveur:', err);
   }
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 HORECA AFRICA API & WebSockets running on http://localhost:${PORT}`);
+  console.log(`🚀 HORECA AFRICA API & WebSockets running on port ${PORT}`);
 });
-
-
