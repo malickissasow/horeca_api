@@ -14,6 +14,9 @@ router.get('/orders', paymentController.getAllOrders);
 // SuperAdmin Manual Payment Approval & Invoice Email Trigger
 router.post('/manual/verify', paymentController.verifyManualPayment);
 
+// Resend Invoice & Access Email
+router.all('/resend-email', paymentController.resendEmail);
+
 // Verify Wave Session
 router.get('/wave/session/:sessionId', paymentController.verifyWaveSession);
 

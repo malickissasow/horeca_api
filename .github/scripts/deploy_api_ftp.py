@@ -68,6 +68,28 @@ def ensure_remote_dir(ftp, remote_path):
             except Exception as e:
                 print(f"Warning creating {current}: {e}")
 
+def safe_upload_file(ftp, local_file, file_name):
+    # Try deleting any leftover Hostinger .in.filename. lock file
+    try:
+        ftp.delete(f".in.{file_name}.")
+    except Exception:
+        pass
+
+    try:
+        with open(local_file, "rb") as f:
+            ftp.storbinary(f"STOR {file_name}", f)
+    except ftplib.error_perm as e:
+        if "550" in str(e):
+            print(f"⚠️ Hostinger 550 locked file detected for {file_name}, removing temp lock...")
+            try:
+                ftp.delete(f".in.{file_name}.")
+            except Exception:
+                pass
+            with open(local_file, "rb") as f:
+                ftp.storbinary(f"STOR {file_name}", f)
+        else:
+            raise e
+
 def upload_folder_recursive(ftp, local_folder, remote_target):
     if not os.path.exists(local_folder):
         return
@@ -79,8 +101,7 @@ def upload_folder_recursive(ftp, local_folder, remote_target):
         for file in files:
             local_file = os.path.join(root, file)
             print(f"  -> [Nodemailer] Uploading {rel}/{file}...")
-            with open(local_file, "rb") as f:
-                ftp.storbinary(f"STOR {file}", f)
+            safe_upload_file(ftp, local_file, file)
 
 def deploy():
     ftp = connect_ftp()
@@ -108,8 +129,7 @@ def deploy():
 
             local_file = os.path.join(root, file)
             print(f"  -> Uploading {rel_path}/{file} to /{target_remote}...")
-            with open(local_file, "rb") as f:
-                ftp.storbinary(f"STOR {file}", f)
+            safe_upload_file(ftp, local_file, file)
             file_count += 1
 
     # Specifically upload node_modules/nodemailer if present
@@ -124,8 +144,7 @@ def deploy():
         ftp.cwd(f"/{REMOTE_DIR}/tmp")
         with open("restart_trigger.txt", "w") as f_tmp:
             f_tmp.write("restart")
-        with open("restart_trigger.txt", "rb") as f_tmp:
-            ftp.storbinary("STOR restart.txt", f_tmp)
+        safe_upload_file(ftp, "restart_trigger.txt", "restart.txt")
         os.remove("restart_trigger.txt")
         print("🔄 Touched tmp/restart.txt to restart Hostinger Node.js Passenger process!")
     except Exception as e:

@@ -5,33 +5,80 @@ try {
   console.warn('⚠️ Nodemailer package not available, email fallback mode');
 }
 
-// Configure SMTP transport
-let transporter = null;
+// 1. Primary Native Hostinger Sendmail Transport (No SMTP password lock)
+let sendmailTransporter = null;
 if (nodemailer) {
   try {
-    transporter = nodemailer.createTransport({
+    sendmailTransporter = nodemailer.createTransport({
+      sendmail: true,
+      newline: 'unix',
+      path: '/usr/sbin/sendmail'
+    });
+  } catch (e) {
+    console.warn('⚠️ Sendmail init note:', e.message);
+  }
+}
+
+// 2. Secondary Hostinger SMTP Transport
+let smtpTransporter = null;
+if (nodemailer) {
+  try {
+    smtpTransporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp.hostinger.com',
       port: parseInt(process.env.SMTP_PORT || '465', 10),
       secure: process.env.SMTP_SECURE !== 'false',
       auth: {
         user: process.env.SMTP_USER || 'contact@horecafrica.org',
-        pass: process.env.SMTP_PASS || 'Horeca2026!'
+        pass: process.env.SMTP_PASS || 'B5@9ll@c'
+      },
+      tls: {
+        rejectUnauthorized: false
       }
     });
   } catch (e) {
-    console.warn('⚠️ Transporter init warning:', e.message);
+    console.warn('⚠️ SMTP init note:', e.message);
   }
+}
+
+/**
+ * Universal Mail Dispatcher with Dual Transport Fallback
+ */
+async function sendMailWithFallback(mailOptions) {
+  // Ensure default Sender header
+  if (!mailOptions.from) {
+    mailOptions.from = '"HORECA AFRICA 2026" <contact@horecafrica.org>';
+  }
+
+  // 1. Try Native Hostinger Sendmail
+  if (sendmailTransporter) {
+    try {
+      const info = await sendmailTransporter.sendMail(mailOptions);
+      console.log(`✉️ Email successfully dispatched via Hostinger Sendmail to ${mailOptions.to}: ${info.messageId}`);
+      return { success: true, messageId: info.messageId, method: 'sendmail' };
+    } catch (sendmailErr) {
+      console.warn('⚠️ Sendmail transport failed, trying SMTP fallback:', sendmailErr.message);
+    }
+  }
+
+  // 2. Try Hostinger SMTP
+  if (smtpTransporter) {
+    try {
+      const info = await smtpTransporter.sendMail(mailOptions);
+      console.log(`✉️ Email successfully dispatched via Hostinger SMTP to ${mailOptions.to}: ${info.messageId}`);
+      return { success: true, messageId: info.messageId, method: 'smtp' };
+    } catch (smtpErr) {
+      console.error('❌ SMTP transport failed:', smtpErr.message);
+      return { success: false, error: smtpErr.message };
+    }
+  }
+
+  return { success: false, error: 'Aucun transporteur mail disponible' };
 }
 
 /**
  * 1. Send Order Confirmation Email to Customer upon placing order (PENDING)
  */
 async function sendOrderReceiptEmail(order) {
-  if (!transporter) {
-    console.warn('⚠️ Transporter not configured, skipping order receipt email for', order.customer_email);
-    return { success: false, reason: 'Nodemailer not active' };
-  }
-
   const formattedAmount = Number(order.amount).toLocaleString('fr-FR') + ' FCFA';
 
   const html = `
@@ -83,27 +130,17 @@ async function sendOrderReceiptEmail(order) {
   </html>
   `;
 
-  try {
-    const info = await transporter.sendMail({
-      from: '"HORECA AFRICA 2026" <contact@horecafrica.org>',
-      to: order.customer_email,
-      subject: `[HORECA AFRICA 2026] Confirmation de Réception de votre Commande (${order.reference})`,
-      html
-    });
-    console.log(`✉️ Order receipt email sent to ${order.customer_email}`);
-    return { success: true, messageId: info.messageId };
-  } catch (err) {
-    console.error('❌ Error sending order receipt email:', err.message);
-    return { success: false, error: err.message };
-  }
+  return await sendMailWithFallback({
+    to: order.customer_email,
+    subject: `[HORECA AFRICA 2026] Confirmation de Réception de votre Commande (${order.reference})`,
+    html
+  });
 }
 
 /**
  * 2. Send Alert Email to SuperAdmin when a new order is placed
  */
 async function sendAdminNewOrderNotification(order) {
-  if (!transporter) return { success: false };
-
   const formattedAmount = Number(order.amount).toLocaleString('fr-FR') + ' FCFA';
 
   const html = `
@@ -121,16 +158,11 @@ async function sendAdminNewOrderNotification(order) {
   <p>Connectez-vous sur le Dashboard Admin pour valider le dépôt et envoyer la facture : <a href="https://app.horecafrica.org/">https://app.horecafrica.org/</a></p>
   `;
 
-  try {
-    await transporter.sendMail({
-      from: '"HORECA AFRICA Bot" <contact@horecafrica.org>',
-      to: 'contact@horecafrica.org',
-      subject: `[🚨 NOUVELLE COMMANDE] ${order.customer_name} - ${order.pack_name} (${formattedAmount})`,
-      html
-    });
-  } catch (err) {
-    console.error('Error sending admin notification:', err.message);
-  }
+  return await sendMailWithFallback({
+    to: 'contact@horecafrica.org',
+    subject: `[🚨 NOUVELLE COMMANDE] ${order.customer_name} - ${order.pack_name} (${formattedAmount})`,
+    html
+  });
 }
 
 /**
@@ -249,32 +281,18 @@ function generateInvoiceHtml(order) {
  * 4. Send Invoice & Activated Access Email to Customer upon SuperAdmin Approval
  */
 async function sendInvoiceEmail(order) {
-  if (!transporter) {
-    console.warn('⚠️ Transporter not configured, skipping SMTP send for', order.customer_email);
-    return { success: false, reason: 'Nodemailer not active' };
-  }
+  const htmlContent = generateInvoiceHtml(order);
+  const invoiceNum = order.invoice_number || `INV-2026-${order.id}`;
 
-  try {
-    const htmlContent = generateInvoiceHtml(order);
-    const invoiceNum = order.invoice_number || `INV-2026-${order.id}`;
-
-    const mailOptions = {
-      from: '"HORECA AFRICA 2026" <contact@horecafrica.org>',
-      to: order.customer_email,
-      subject: `[✓ ACCÈS VALIDÉS & Facture ${invoiceNum}] Votre Réservation HORECA AFRICA 2026 est Confirmée !`,
-      html: htmlContent
-    };
-
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`✉️ Invoice & Access Email sent to ${order.customer_email}: ${info.messageId}`);
-    return { success: true, messageId: info.messageId };
-  } catch (error) {
-    console.error('❌ Error sending invoice email:', error.message);
-    return { success: false, error: error.message };
-  }
+  return await sendMailWithFallback({
+    to: order.customer_email,
+    subject: `[✓ ACCÈS VALIDÉS & Facture ${invoiceNum}] Votre Réservation HORECA AFRICA 2026 est Confirmée !`,
+    html: htmlContent
+  });
 }
 
 module.exports = {
+  sendMailWithFallback,
   sendOrderReceiptEmail,
   sendAdminNewOrderNotification,
   generateInvoiceHtml,

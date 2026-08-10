@@ -197,6 +197,44 @@ exports.verifyManualPayment = async (req, res) => {
   }
 };
 
+// 5. Resend Email for Order (SuperAdmin or Direct trigger)
+exports.resendEmail = async (req, res) => {
+  try {
+    const orderId = req.query.orderId || req.body.orderId;
+    const email = req.query.email || req.body.email;
+
+    let query = 'SELECT * FROM orders ';
+    let params = [];
+    if (orderId) {
+      query += 'WHERE id = ?';
+      params.push(orderId);
+    } else if (email) {
+      query += 'WHERE customer_email = ? ORDER BY id DESC LIMIT 1';
+      params.push(email);
+    } else {
+      query += 'ORDER BY id DESC LIMIT 1';
+    }
+
+    const [rows] = await pool.promise().query(query, params);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Aucune commande trouvée' });
+    }
+
+    const order = rows[0];
+    const result = await sendInvoiceEmail(order);
+
+    res.json({
+      success: true,
+      message: `Email renvoyé avec succès à ${order.customer_email}`,
+      result,
+      order
+    });
+  } catch (error) {
+    console.error('resendEmail error:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // Verify Wave Session
 exports.verifyWaveSession = async (req, res) => {
   try {
