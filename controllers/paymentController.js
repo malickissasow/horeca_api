@@ -1,53 +1,25 @@
 const pool = require('../config/db');
 const waveService = require('../services/waveService');
-const { sendInvoiceEmail, sendOrderReceiptEmail, sendAdminNewOrderNotification } = require('../services/emailService');
+const bcrypt = require('bcryptjs');
+const { sendOrderReceiptEmail, sendAdminNewOrderNotification, sendInvoiceEmail } = require('../services/emailService');
 
-// Ensure orders table exists in DB
-async function ensureOrdersTable() {
-  try {
-    await pool.promise().query(`
-      CREATE TABLE IF NOT EXISTS orders (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        reference VARCHAR(100) NOT NULL UNIQUE,
-        user_id INT DEFAULT NULL,
-        customer_name VARCHAR(191) NOT NULL,
-        customer_email VARCHAR(191) NOT NULL,
-        customer_phone VARCHAR(50) DEFAULT NULL,
-        company_name VARCHAR(191) DEFAULT NULL,
-        pack_name VARCHAR(191) NOT NULL,
-        amount DECIMAL(10,2) NOT NULL,
-        payment_method ENUM('WAVE_API', 'MANUAL_WAVE', 'MANUAL_OM') NOT NULL DEFAULT 'MANUAL_WAVE',
-        transaction_ref VARCHAR(191) DEFAULT NULL,
-        status ENUM('PENDING_PAYMENT', 'PENDING_MANUAL_VERIFICATION', 'COMPLETED', 'REJECTED') NOT NULL DEFAULT 'PENDING_MANUAL_VERIFICATION',
-        invoice_number VARCHAR(100) DEFAULT NULL,
-        invoice_sent BOOLEAN DEFAULT FALSE,
-        admin_notes TEXT DEFAULT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
-  } catch (e) {
-    console.error('ensureOrdersTable error:', e);
-  }
-}
-ensureOrdersTable();
-
-// 1. Direct Automated Wave API Checkout
+// 1. Create Wave Direct Checkout Session
 exports.createWaveCheckout = async (req, res) => {
   try {
-    const { amount, packName, userEmail, userName, userPhone, companyName, userId } = req.body;
-    if (!amount) {
-      return res.status(400).json({ error: 'Montant requis pour le paiement Wave' });
+    const { amount, packName, userEmail, userName, userPhone, companyName } = req.body;
+
+    if (!amount || !packName) {
+      return res.status(400).json({ error: 'Montant et nom du pack requis' });
     }
 
     const reference = `HORECA-WAVE-${Date.now()}`;
 
-    // Store initial order in DB
+    // Record order in pending state
     try {
       await pool.promise().query(
         `INSERT INTO orders (reference, user_id, customer_name, customer_email, customer_phone, company_name, pack_name, amount, payment_method, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'WAVE_API', 'PENDING_PAYMENT')`,
-        [reference, userId || null, userName || 'Client', userEmail || 'client@horecafrica.org', userPhone || '', companyName || '', packName || 'Offre HORECA', amount]
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'WAVE_DIRECT', 'PENDING_PAYMENT')`,
+        [reference, null, userName || 'Client', userEmail || 'client@horecafrica.org', userPhone || '', companyName || '', packName || 'Offre HORECA', amount]
       );
     } catch (dbErr) {
       console.warn('Note storing Wave order in DB:', dbErr.message);
@@ -80,10 +52,35 @@ exports.createWaveCheckout = async (req, res) => {
 // 2. Submit Manual Payment Request (Wave / Orange Money via +221 77 542 82 35)
 exports.submitManualPayment = async (req, res) => {
   try {
-    const { userId, customerName, customerEmail, customerPhone, companyName, packName, amount, paymentMethod, transactionRef } = req.body;
+    const { userId, customerName, customerEmail, customerPhone, companyName, packName, amount, paymentMethod, transactionRef, password } = req.body;
 
     if (!customerName || !customerEmail || !packName || !amount) {
       return res.status(400).json({ error: 'Informations client et montant obligatoires' });
+    }
+
+    const cleanEmail = customerEmail.trim().toLowerCase();
+
+    // Check or create participant user account
+    let targetUserId = userId || null;
+    const [existingUsers] = await pool.promise().query('SELECT id FROM users WHERE LOWER(email) = ?', [cleanEmail]);
+
+    if (existingUsers.length > 0) {
+      targetUserId = existingUsers[0].id;
+      if (password) {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await pool.promise().query('UPDATE users SET password = ?, name = ?, company = ?, phone = ? WHERE id = ?', [hashedPassword, customerName.trim(), companyName || customerName.trim(), customerPhone || '', targetUserId]);
+      }
+    } else {
+      const userPass = password || 'horeca2026';
+      const hashedPassword = await bcrypt.hash(userPass, 10);
+      const userRole = packName.toLowerCase().includes('stand') || packName.toLowerCase().includes('pack') ? 'Exposant' : 'Professionnel';
+
+      const [newUser] = await pool.promise().query(
+        `INSERT INTO users (email, password, name, company, role, sector, phone, is_super_admin, is_active)
+         VALUES (?, ?, ?, ?, ?, 'Hôtellerie', ?, FALSE, FALSE)`,
+        [cleanEmail, hashedPassword, customerName.trim(), companyName || customerName.trim(), userRole, customerPhone || '']
+      );
+      targetUserId = newUser.insertId;
     }
 
     const reference = `HORECA-MANUAL-${Date.now()}`;
@@ -94,9 +91,9 @@ exports.submitManualPayment = async (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_MANUAL_VERIFICATION')`,
       [
         reference,
-        userId || null,
+        targetUserId,
         customerName.trim(),
-        customerEmail.trim(),
+        cleanEmail,
         customerPhone || '',
         companyName || '',
         packName,
@@ -109,8 +106,9 @@ exports.submitManualPayment = async (req, res) => {
     const orderObj = {
       id: result.insertId,
       reference,
+      user_id: targetUserId,
       customer_name: customerName.trim(),
-      customer_email: customerEmail.trim(),
+      customer_email: cleanEmail,
       customer_phone: customerPhone,
       company_name: companyName,
       pack_name: packName,
@@ -125,8 +123,9 @@ exports.submitManualPayment = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Votre demande de paiement manuel a été soumise avec succès. L\'administrateur va valider le transfert et vous envoyer votre facture et vos accès par email.',
+      message: 'Votre compte participant et demande de réservation ont été créés avec succès. L\'administrateur va valider votre transfert et vos accès seront débloqués.',
       orderId: result.insertId,
+      userId: targetUserId,
       reference
     });
   } catch (error) {
@@ -170,13 +169,25 @@ exports.verifyManualPayment = async (req, res) => {
         [invoiceNumber, adminNotes || 'Paiement manuel validé par SuperAdmin', orderId]
       );
 
-      // Automatically activate corresponding user account in DB
+      // Automatically activate or create corresponding user account in DB
       try {
-        if (order.user_id) {
-          await pool.promise().query(`UPDATE users SET is_active = TRUE WHERE id = ?`, [order.user_id]);
-        }
-        if (order.customer_email) {
-          await pool.promise().query(`UPDATE users SET is_active = TRUE WHERE LOWER(email) = LOWER(?)`, [order.customer_email.trim()]);
+        const cleanEmail = (order.customer_email || '').trim().toLowerCase();
+        if (cleanEmail) {
+          const [existingUsers] = await pool.promise().query('SELECT id FROM users WHERE LOWER(email) = ?', [cleanEmail]);
+
+          if (existingUsers.length > 0) {
+            await pool.promise().query(`UPDATE users SET is_active = TRUE WHERE id = ?`, [existingUsers[0].id]);
+          } else {
+            // Create and activate account if missing
+            const defaultPass = await bcrypt.hash('horeca2026', 10);
+            const userRole = (order.pack_name || '').toLowerCase().includes('stand') || (order.pack_name || '').toLowerCase().includes('pack') ? 'Exposant' : 'Professionnel';
+            const [newUser] = await pool.promise().query(
+              `INSERT INTO users (email, password, name, company, role, sector, phone, is_super_admin, is_active)
+               VALUES (?, ?, ?, ?, ?, 'Hôtellerie', ?, FALSE, TRUE)`,
+              [cleanEmail, defaultPass, order.customer_name || 'Participant', order.company_name || order.customer_name || 'Participant', userRole, order.customer_phone || '']
+            );
+            await pool.promise().query(`UPDATE orders SET user_id = ? WHERE id = ?`, [newUser.insertId, orderId]);
+          }
         }
       } catch (userErr) {
         console.warn('Note activating user account on payment approval:', userErr.message);
@@ -221,48 +232,22 @@ exports.resendEmail = async (req, res) => {
       query += 'WHERE id = ?';
       params.push(orderId);
     } else if (email) {
-      query += 'WHERE customer_email = ? ORDER BY id DESC LIMIT 1';
-      params.push(email);
+      query += 'WHERE LOWER(customer_email) = LOWER(?) ORDER BY created_at DESC LIMIT 1';
+      params.push(email.trim());
     } else {
-      query += 'ORDER BY id DESC LIMIT 1';
+      return res.status(400).json({ error: 'Order ID ou Email requis' });
     }
 
-    const [rows] = await pool.promise().query(query, params);
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Aucune commande trouvée' });
+    const [orders] = await pool.promise().query(query, params);
+    if (orders.length === 0) {
+      return res.status(404).json({ error: 'Commande non trouvée' });
     }
 
-    const order = rows[0];
-
-    // Ensure user account is also set to active
-    try {
-      if (order.customer_email) {
-        await pool.promise().query(`UPDATE users SET is_active = TRUE WHERE LOWER(email) = LOWER(?)`, [order.customer_email.trim()]);
-      }
-    } catch (e) {}
-
+    const order = orders[0];
     const result = await sendInvoiceEmail(order);
-
-    res.json({
-      success: true,
-      message: `Email renvoyé avec succès à ${order.customer_email}`,
-      result,
-      order
-    });
+    res.json({ success: true, message: `Email d'accès et facture renvoyés à ${order.customer_email}`, result });
   } catch (error) {
     console.error('resendEmail error:', error);
-    res.status(500).json({ error: error.message });
-  }
-};
-
-// Verify Wave Session
-exports.verifyWaveSession = async (req, res) => {
-  try {
-    const { sessionId } = req.params;
-    const result = await waveService.getCheckoutSession(sessionId);
-    res.json(result);
-  } catch (error) {
-    console.error('verifyWaveSession error:', error);
-    res.status(500).json({ error: 'Erreur vérification session Wave' });
+    res.status(500).json({ error: 'Erreur renvoi d’email' });
   }
 };

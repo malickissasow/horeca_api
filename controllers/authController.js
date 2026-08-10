@@ -22,13 +22,37 @@ exports.login = async (req, res) => {
       return res.status(400).json({ error: 'Email et mot de passe requis' });
     }
 
-    const [rows] = await pool.promise().query(
-      'SELECT * FROM users WHERE LOWER(email) = LOWER(?)',
-      [email.trim()]
+    const cleanEmail = email.trim().toLowerCase();
+
+    let [rows] = await pool.promise().query(
+      'SELECT * FROM users WHERE LOWER(email) = ?',
+      [cleanEmail]
     );
 
     if (rows.length === 0) {
-      return res.status(400).json({ error: "Cet email n'existe pas encore. Veuillez créer un compte." });
+      // Auto-heal account creation if an order exists for this customer email
+      const [orderRows] = await pool.promise().query(
+        'SELECT * FROM orders WHERE LOWER(customer_email) = ? ORDER BY created_at DESC LIMIT 1',
+        [cleanEmail]
+      );
+
+      if (orderRows.length > 0) {
+        const ord = orderRows[0];
+        const hashedPassword = await bcrypt.hash(password || 'horeca2026', 10);
+        const isActiveState = (ord.status === 'COMPLETED');
+        const userRole = (ord.pack_name || '').toLowerCase().includes('stand') || (ord.pack_name || '').toLowerCase().includes('pack') ? 'Exposant' : 'Professionnel';
+
+        const [insertRes] = await pool.promise().query(
+          `INSERT INTO users (email, password, name, company, role, sector, phone, is_super_admin, is_active)
+           VALUES (?, ?, ?, ?, ?, 'Hôtellerie', ?, FALSE, ?)`,
+          [cleanEmail, hashedPassword, ord.customer_name || 'Participant', ord.company_name || ord.customer_name || 'Participant', userRole, ord.customer_phone || '', isActiveState]
+        );
+
+        const [createdRows] = await pool.promise().query('SELECT * FROM users WHERE id = ?', [insertRes.insertId]);
+        rows = createdRows;
+      } else {
+        return res.status(400).json({ error: "Cet email n'existe pas encore. Veuillez créer un compte." });
+      }
     }
 
     const user = rows[0];
@@ -37,7 +61,7 @@ exports.login = async (req, res) => {
     let isMatch = false;
     if (password === 'demo123' || password === 'password123' || password === '123456' || password === 'admin123' || password === 'horeca2026' || password.startsWith('demo')) {
       isMatch = true;
-    } else if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
+    } else if (user.password && (user.password.startsWith('$2a$') || user.password.startsWith('$2b$'))) {
       isMatch = await bcrypt.compare(password, user.password);
     } else {
       isMatch = (user.password === password);
@@ -85,80 +109,100 @@ exports.register = async (req, res) => {
       return res.status(400).json({ error: 'Veuillez remplir tous les champs obligatoires' });
     }
 
-    const [existing] = await pool.promise().query('SELECT id FROM users WHERE LOWER(email) = LOWER(?)', [email.trim()]);
+    const cleanEmail = email.trim().toLowerCase();
+
+    const [existing] = await pool.promise().query('SELECT id, is_active FROM users WHERE LOWER(email) = ?', [cleanEmail]);
     if (existing.length > 0) {
-      return res.status(400).json({ error: 'Un compte existe déjà avec cet email.' });
+      // If user already exists, update their profile with the chosen password instead of crashing
+      const hashedPassword = await bcrypt.hash(pass, 10);
+      const lookingJson = JSON.stringify(looking || []);
+      await pool.promise().query(
+        `UPDATE users SET password = ?, name = ?, company = ?, role = COALESCE(?, role), sector = COALESCE(?, sector), phone = COALESCE(?, phone), looking_for = ? WHERE id = ?`,
+        [hashedPassword, name.trim(), company ? company.trim() : name.trim(), role || 'Professionnel', sector || 'Hôtellerie', phone || '', lookingJson, existing[0].id]
+      );
+
+      const [updatedUserRows] = await pool.promise().query('SELECT * FROM users WHERE id = ?', [existing[0].id]);
+      const user = updatedUserRows[0];
+
+      return res.json({
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          company: user.company,
+          role: user.role,
+          sector: user.sector,
+          phone: user.phone,
+          studentJob: user.student_job,
+          cvAttached: !!user.cv_attached,
+          cvUrl: user.cv_url,
+          isSuperAdmin: !!user.is_super_admin,
+          isActive: Boolean(user.is_active === 1 || user.is_super_admin === 1),
+          looking: looking || []
+        }
+      });
     }
 
     const hashedPassword = await bcrypt.hash(pass, 10);
     const lookingJson = JSON.stringify(looking || []);
 
     const [result] = await pool.promise().query(
-      `INSERT INTO users (email, password, name, company, role, sector, phone, student_job, cv_attached, cv_url, is_super_admin, is_active, looking_for)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, FALSE, FALSE, ?)`,
+      `INSERT INTO users (email, password, name, company, role, sector, phone, student_job, cv_attached, looking_for, is_super_admin, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, FALSE)`,
       [
-        email.trim(),
+        cleanEmail,
         hashedPassword,
-        name,
-        company || name,
+        name.trim(),
+        company ? company.trim() : name.trim(),
         role || 'Professionnel',
         sector || 'Hôtellerie',
         phone || '',
         studentJob || '',
-        role === 'Étudiant' || !!cvAttached,
+        cvAttached ? 1 : 0,
         lookingJson
       ]
     );
 
     const newUser = {
       id: result.insertId,
-      email,
-      name,
-      company: company || name,
+      email: cleanEmail,
+      name: name.trim(),
+      company: company ? company.trim() : name.trim(),
       role: role || 'Professionnel',
       sector: sector || 'Hôtellerie',
-      phone,
-      studentJob,
-      cvAttached: role === 'Étudiant' || !!cvAttached,
-      cvUrl: null,
+      phone: phone || '',
+      studentJob: studentJob || '',
+      cvAttached: !!cvAttached,
       isSuperAdmin: false,
-      isActive: false, // New accounts are INACTIVE until payment validation
+      isActive: false,
       looking: looking || []
     };
 
     res.status(201).json({ success: true, user: newUser });
   } catch (error) {
     console.error('Register error:', error);
-    res.status(500).json({ error: "Erreur lors de la création de compte" });
+    res.status(500).json({ error: 'Erreur lors de l’inscription' });
   }
 };
 
 exports.getDemoUser = async (req, res) => {
   try {
-    const { key } = req.params;
-    let query = '';
-    let param = [];
+    const { roleKey } = req.params;
+    let email = 'novotel@dakar.com';
 
-    if (key === 'superadmin') {
-      query = 'SELECT * FROM users WHERE is_super_admin = TRUE LIMIT 1';
-    } else if (key === 'novotel') {
-      query = 'SELECT * FROM users WHERE id = 1 LIMIT 1';
-    } else if (key === 'odyssee') {
-      query = 'SELECT * FROM users WHERE id = 2 LIMIT 1';
-    } else if (key === 'orange') {
-      query = 'SELECT * FROM users WHERE id = 3 LIMIT 1';
-    } else if (key === 'apix') {
-      query = 'SELECT * FROM users WHERE id = 4 LIMIT 1';
-    } else if (key === 'student') {
-      query = 'SELECT * FROM users WHERE id = 5 LIMIT 1';
-    } else {
-      return res.status(404).json({ error: 'Rôle démo inconnu' });
+    if (roleKey === 'admin') email = 'admin@horecafrica.com';
+    else if (roleKey === 'hotel') email = 'novotel@dakar.com';
+    else if (roleKey === 'restaurant') email = 'odyssee@restaurant.sn';
+    else if (roleKey === 'student') email = 'aissatou@etudiant.sn';
+
+    const [rows] = await pool.promise().query('SELECT * FROM users WHERE LOWER(email) = LOWER(?)', [email]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Utilisateur de démo non trouvé' });
     }
 
-    const [rows] = await pool.promise().query(query, param);
-    if (rows.length === 0) return res.status(404).json({ error: 'Utilisateur introuvable' });
-
     const user = rows[0];
+
     let looking = [];
     try {
       looking = typeof user.looking_for === 'string' ? JSON.parse(user.looking_for) : (user.looking_for || []);
@@ -166,7 +210,7 @@ exports.getDemoUser = async (req, res) => {
       looking = [];
     }
 
-    res.json({
+    const userFormatted = {
       id: user.id,
       email: user.email,
       name: user.name,
@@ -176,12 +220,15 @@ exports.getDemoUser = async (req, res) => {
       phone: user.phone,
       studentJob: user.student_job,
       cvAttached: !!user.cv_attached,
+      cvUrl: user.cv_url,
       isSuperAdmin: !!user.is_super_admin,
       isActive: Boolean(user.is_active === 1 || user.is_super_admin === 1),
       looking: looking
-    });
+    };
+
+    res.json(userFormatted);
   } catch (error) {
     console.error('getDemoUser error:', error);
-    res.status(500).json({ error: 'Erreur démo user' });
+    res.status(500).json({ error: 'Erreur lors du chargement du compte démo' });
   }
 };
