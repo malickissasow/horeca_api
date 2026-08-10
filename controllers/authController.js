@@ -13,7 +13,6 @@ async function ensureIsActiveColumn() {
     console.warn('ensureIsActiveColumn note:', e.message);
   }
 }
-ensureIsActiveColumn();
 
 exports.login = async (req, res) => {
   try {
