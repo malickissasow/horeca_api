@@ -1,15 +1,27 @@
-const nodemailer = require('nodemailer');
+let nodemailer;
+try {
+  nodemailer = require('nodemailer');
+} catch (e) {
+  console.warn('⚠️ Nodemailer package not available, invoice email fallback mode');
+}
 
-// Configure SMTP transport (using environment variables with fallback)
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.hostinger.com',
-  port: parseInt(process.env.SMTP_PORT || '465', 10),
-  secure: process.env.SMTP_SECURE !== 'false', // true for 465, false for 587
-  auth: {
-    user: process.env.SMTP_USER || 'contact@horecafrica.org',
-    pass: process.env.SMTP_PASS || 'Horeca2026!'
+// Configure SMTP transport
+let transporter = null;
+if (nodemailer) {
+  try {
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.hostinger.com',
+      port: parseInt(process.env.SMTP_PORT || '465', 10),
+      secure: process.env.SMTP_SECURE !== 'false',
+      auth: {
+        user: process.env.SMTP_USER || 'contact@horecafrica.org',
+        pass: process.env.SMTP_PASS || 'Horeca2026!'
+      }
+    });
+  } catch (e) {
+    console.warn('⚠️ Transporter init warning:', e.message);
   }
-});
+}
 
 /**
  * Generate HTML Email Invoice Template
@@ -117,6 +129,11 @@ function generateInvoiceHtml(order) {
  * Send Invoice Email to Customer
  */
 async function sendInvoiceEmail(order) {
+  if (!transporter) {
+    console.warn('⚠️ Transporter not configured, skipping SMTP send for', order.customer_email);
+    return { success: false, reason: 'Nodemailer not active' };
+  }
+
   try {
     const htmlContent = generateInvoiceHtml(order);
     const invoiceNum = order.invoice_number || `INV-2026-${order.id}`;
@@ -133,7 +150,6 @@ async function sendInvoiceEmail(order) {
     return { success: true, messageId: info.messageId };
   } catch (error) {
     console.error('❌ Error sending invoice email:', error.message);
-    // Return graceful status even if SMTP port is restricted on runner
     return { success: false, error: error.message };
   }
 }

@@ -52,6 +52,20 @@ def ensure_remote_dir(ftp, remote_path):
             except Exception as e:
                 print(f"Warning creating {current}: {e}")
 
+def upload_folder_recursive(ftp, local_folder, remote_target):
+    if not os.path.exists(local_folder):
+        return
+    for root, dirs, files in os.walk(local_folder):
+        rel = os.path.relpath(root, local_folder)
+        target_path = remote_target if rel == "." else f"{remote_target}/{rel.replace(os.sep, '/')}"
+        ensure_remote_dir(ftp, target_path)
+        ftp.cwd(f"/{target_path}")
+        for file in files:
+            local_file = os.path.join(root, file)
+            print(f"  -> [Nodemailer] Uploading {rel}/{file}...")
+            with open(local_file, "rb") as f:
+                ftp.storbinary(f"STOR {file}", f)
+
 def deploy():
     ftp = connect_ftp()
 
@@ -81,6 +95,12 @@ def deploy():
             with open(local_file, "rb") as f:
                 ftp.storbinary(f"STOR {file}", f)
             file_count += 1
+
+    # Specifically upload node_modules/nodemailer
+    local_nodemailer = os.path.join(LOCAL_DIR, "node_modules", "nodemailer")
+    if os.path.exists(local_nodemailer):
+        print("📦 Uploading nodemailer package to nodejs/node_modules/nodemailer...")
+        upload_folder_recursive(ftp, local_nodemailer, f"{REMOTE_DIR}/node_modules/nodemailer")
 
     # Restart Node process via Passenger / Hostinger restart trigger
     try:
