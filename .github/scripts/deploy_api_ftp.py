@@ -2,6 +2,7 @@ import os
 import sys
 import ftplib
 import ssl
+import time
 
 FTP_HOST = os.getenv("FTP_HOST", "92.113.24.18")
 FTP_PORT = int(os.getenv("FTP_PORT", "21"))
@@ -14,29 +15,44 @@ EXCLUDE_DIRS = {".git", ".github", "node_modules", "uploads", "tests", "tmp"}
 EXCLUDE_FILES = {".env", ".env.local", ".env.production", ".env.example", ".DS_Store", "README.md"}
 
 def connect_ftp():
-    print(f"🚀 Connecting to FTP {FTP_HOST}:{FTP_PORT} via FTPS (Explicit TLS)...")
-    try:
-        context = ssl.create_default_context()
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
+    print(f"🚀 Connecting to FTP {FTP_HOST}:{FTP_PORT}...")
+    for attempt in range(1, 4):
+        # Try FTPS (Explicit TLS)
+        try:
+            print(f"🔒 Attempt {attempt}/3: Connecting via FTPS (TLS)...")
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
 
-        ftps = ftplib.FTP_TLS(context=context)
-        ftps.trust_server_pasv_ipv4_address = True
-        ftps.connect(FTP_HOST, FTP_PORT, timeout=60)
-        ftps.login(FTP_USER, FTP_PASS)
-        ftps.prot_p()  # Enforce encrypted data channel for cloud runners
-        ftps.set_pasv(True)
-        print("🔒 Connected & Logged in via FTPS (Encrypted Data Channel)!")
-        return ftps
-    except Exception as e:
-        print(f"⚠️ FTPS connection failed ({e}), falling back to Plain FTP...")
-        ftp = ftplib.FTP()
-        ftp.trust_server_pasv_ipv4_address = True
-        ftp.connect(FTP_HOST, FTP_PORT, timeout=60)
-        ftp.login(FTP_USER, FTP_PASS)
-        ftp.set_pasv(True)
-        print("✅ Connected & Logged in via Plain FTP!")
-        return ftp
+            ftps = ftplib.FTP_TLS(context=context)
+            ftps.trust_server_pasv_ipv4_address = True
+            ftps.connect(FTP_HOST, FTP_PORT, timeout=15)
+            ftps.login(FTP_USER, FTP_PASS)
+            ftps.prot_p()  # Enforce encrypted data channel
+            ftps.set_pasv(True)
+            print("🔒 Connected & Logged in via FTPS (Encrypted Data Channel)!")
+            return ftps
+        except Exception as e:
+            print(f"⚠️ FTPS Attempt {attempt} failed ({e})")
+
+        # Try Plain FTP
+        try:
+            print(f"⚡ Attempt {attempt}/3: Connecting via Plain FTP...")
+            ftp = ftplib.FTP()
+            ftp.trust_server_pasv_ipv4_address = True
+            ftp.connect(FTP_HOST, FTP_PORT, timeout=15)
+            ftp.login(FTP_USER, FTP_PASS)
+            ftp.set_pasv(True)
+            print("✅ Connected & Logged in via Plain FTP!")
+            return ftp
+        except Exception as e:
+            print(f"⚠️ Plain FTP Attempt {attempt} failed ({e})")
+
+        if attempt < 3:
+            print("⏳ Waiting 3 seconds before next retry...")
+            time.sleep(3)
+
+    raise RuntimeError(f"❌ Failed to connect to Hostinger FTP {FTP_HOST} after 3 attempts.")
 
 def ensure_remote_dir(ftp, remote_path):
     dirs = [d for d in remote_path.split("/") if d]
@@ -96,7 +112,7 @@ def deploy():
                 ftp.storbinary(f"STOR {file}", f)
             file_count += 1
 
-    # Specifically upload node_modules/nodemailer
+    # Specifically upload node_modules/nodemailer if present
     local_nodemailer = os.path.join(LOCAL_DIR, "node_modules", "nodemailer")
     if os.path.exists(local_nodemailer):
         print("📦 Uploading nodemailer package to nodejs/node_modules/nodemailer...")
