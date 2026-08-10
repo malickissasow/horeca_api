@@ -34,7 +34,7 @@ exports.createWaveCheckout = async (req, res) => {
     });
 
     if (!result.success) {
-      return res.status(400).json({ error: result.error || 'Échec d’initialisation de la session Wave' });
+      return res.status(400).json({ error: result.error || "Échec d'initialisation de la session Wave" });
     }
 
     res.json({
@@ -248,6 +248,6 @@ exports.resendEmail = async (req, res) => {
     res.json({ success: true, message: `Email d'accès et facture renvoyés à ${order.customer_email}`, result });
   } catch (error) {
     console.error('resendEmail error:', error);
-    res.status(500).json({ error: 'Erreur renvoi d’email' });
+    res.status(500).json({ error: "Erreur renvoi d'email" });
   }
 };
