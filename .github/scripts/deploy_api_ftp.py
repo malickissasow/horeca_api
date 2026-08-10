@@ -3,6 +3,7 @@ import sys
 import ftplib
 import ssl
 import time
+import socket
 
 FTP_HOST = os.getenv("FTP_HOST", "92.113.24.18")
 FTP_PORT = int(os.getenv("FTP_PORT", "21"))
@@ -26,7 +27,7 @@ def connect_ftp():
 
             ftps = ftplib.FTP_TLS(context=context)
             ftps.trust_server_pasv_ipv4_address = True
-            ftps.connect(FTP_HOST, FTP_PORT, timeout=15)
+            ftps.connect(FTP_HOST, FTP_PORT, timeout=20)
             ftps.login(FTP_USER, FTP_PASS)
             ftps.prot_p()  # Enforce encrypted data channel
             ftps.set_pasv(True)
@@ -40,7 +41,7 @@ def connect_ftp():
             print(f"⚡ Attempt {attempt}/3: Connecting via Plain FTP...")
             ftp = ftplib.FTP()
             ftp.trust_server_pasv_ipv4_address = True
-            ftp.connect(FTP_HOST, FTP_PORT, timeout=15)
+            ftp.connect(FTP_HOST, FTP_PORT, timeout=20)
             ftp.login(FTP_USER, FTP_PASS)
             ftp.set_pasv(True)
             print("✅ Connected & Logged in via Plain FTP!")
@@ -78,30 +79,17 @@ def safe_upload_file(ftp, local_file, file_name):
     try:
         with open(local_file, "rb") as f:
             ftp.storbinary(f"STOR {file_name}", f)
-    except ftplib.error_perm as e:
-        if "550" in str(e):
-            print(f"⚠️ Hostinger 550 locked file detected for {file_name}, removing temp lock...")
-            try:
-                ftp.delete(f".in.{file_name}.")
-            except Exception:
-                pass
+    except Exception as e:
+        print(f"⚠️ Retry upload for {file_name} ({e})...")
+        try:
+            ftp.delete(f".in.{file_name}.")
+        except Exception:
+            pass
+        try:
             with open(local_file, "rb") as f:
                 ftp.storbinary(f"STOR {file_name}", f)
-        else:
-            raise e
-
-def upload_folder_recursive(ftp, local_folder, remote_target):
-    if not os.path.exists(local_folder):
-        return
-    for root, dirs, files in os.walk(local_folder):
-        rel = os.path.relpath(root, local_folder)
-        target_path = remote_target if rel == "." else f"{remote_target}/{rel.replace(os.sep, '/')}"
-        ensure_remote_dir(ftp, target_path)
-        ftp.cwd(f"/{target_path}")
-        for file in files:
-            local_file = os.path.join(root, file)
-            print(f"  -> [Nodemailer] Uploading {rel}/{file}...")
-            safe_upload_file(ftp, local_file, file)
+        except Exception as e2:
+            print(f"Warning storing {file_name}: {e2}")
 
 def deploy():
     ftp = connect_ftp()
@@ -131,12 +119,6 @@ def deploy():
             print(f"  -> Uploading {rel_path}/{file} to /{target_remote}...")
             safe_upload_file(ftp, local_file, file)
             file_count += 1
-
-    # Specifically upload node_modules/nodemailer if present
-    local_nodemailer = os.path.join(LOCAL_DIR, "node_modules", "nodemailer")
-    if os.path.exists(local_nodemailer):
-        print("📦 Uploading nodemailer package to nodejs/node_modules/nodemailer...")
-        upload_folder_recursive(ftp, local_nodemailer, f"{REMOTE_DIR}/node_modules/nodemailer")
 
     # Restart Node process via Passenger / Hostinger restart trigger
     try:
