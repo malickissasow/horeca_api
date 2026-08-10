@@ -15,7 +15,8 @@ router.get('/orders', paymentController.getAllOrders);
 router.post('/manual/verify', paymentController.verifyManualPayment);
 
 // Resend Invoice & Access Email
-router.all('/resend-email', paymentController.resendEmail);
+router.get('/resend-email', paymentController.resendEmail);
+router.post('/resend-email', paymentController.resendEmail);
 
 // Verify Wave Session
 router.get('/wave/session/:sessionId', paymentController.verifyWaveSession);
