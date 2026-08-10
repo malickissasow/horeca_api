@@ -146,7 +146,7 @@ exports.getAllOrders = async (req, res) => {
   }
 };
 
-// 4. SuperAdmin Verify Manual Payment & Send Invoice + Access
+// 4. SuperAdmin Verify Manual Payment & Send Invoice + Activate Access
 exports.verifyManualPayment = async (req, res) => {
   try {
     const { orderId, action, adminNotes } = req.body;
@@ -169,6 +169,18 @@ exports.verifyManualPayment = async (req, res) => {
         `UPDATE orders SET status = 'COMPLETED', invoice_number = ?, invoice_sent = TRUE, admin_notes = ? WHERE id = ?`,
         [invoiceNumber, adminNotes || 'Paiement manuel validé par SuperAdmin', orderId]
       );
+
+      // Automatically activate corresponding user account in DB
+      try {
+        if (order.user_id) {
+          await pool.promise().query(`UPDATE users SET is_active = TRUE WHERE id = ?`, [order.user_id]);
+        }
+        if (order.customer_email) {
+          await pool.promise().query(`UPDATE users SET is_active = TRUE WHERE LOWER(email) = LOWER(?)`, [order.customer_email.trim()]);
+        }
+      } catch (userErr) {
+        console.warn('Note activating user account on payment approval:', userErr.message);
+      }
 
       // Trigger automatic invoice & access activation email
       order.status = 'COMPLETED';
@@ -221,6 +233,14 @@ exports.resendEmail = async (req, res) => {
     }
 
     const order = rows[0];
+
+    // Ensure user account is also set to active
+    try {
+      if (order.customer_email) {
+        await pool.promise().query(`UPDATE users SET is_active = TRUE WHERE LOWER(email) = LOWER(?)`, [order.customer_email.trim()]);
+      }
+    } catch (e) {}
+
     const result = await sendInvoiceEmail(order);
 
     res.json({

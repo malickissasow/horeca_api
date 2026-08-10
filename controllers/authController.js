@@ -1,6 +1,20 @@
 const pool = require('../config/db');
 const bcrypt = require('bcryptjs');
 
+// Ensure is_active column exists in users table
+async function ensureIsActiveColumn() {
+  try {
+    const [cols] = await pool.promise().query("SHOW COLUMNS FROM users LIKE 'is_active'");
+    if (cols.length === 0) {
+      await pool.promise().query("ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE");
+      await pool.promise().query("UPDATE users SET is_active = TRUE");
+    }
+  } catch (e) {
+    console.warn('ensureIsActiveColumn note:', e.message);
+  }
+}
+ensureIsActiveColumn();
+
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -19,7 +33,7 @@ exports.login = async (req, res) => {
 
     const user = rows[0];
     
-    // Support bcrypt check, demo passwords (demo123, password123, 123456), or plain text
+    // Support bcrypt check, demo passwords, or plain text
     let isMatch = false;
     if (password === 'demo123' || password === 'password123' || password === '123456' || password === 'admin123' || password === 'horeca2026' || password.startsWith('demo')) {
       isMatch = true;
@@ -53,6 +67,7 @@ exports.login = async (req, res) => {
       cvAttached: !!user.cv_attached,
       cvUrl: user.cv_url,
       isSuperAdmin: !!user.is_super_admin,
+      isActive: Boolean(user.is_active === 1 || user.is_super_admin === 1),
       looking: looking
     };
 
@@ -79,8 +94,8 @@ exports.register = async (req, res) => {
     const lookingJson = JSON.stringify(looking || []);
 
     const [result] = await pool.promise().query(
-      `INSERT INTO users (email, password, name, company, role, sector, phone, student_job, cv_attached, cv_url, is_super_admin, looking_for)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, FALSE, ?)`,
+      `INSERT INTO users (email, password, name, company, role, sector, phone, student_job, cv_attached, cv_url, is_super_admin, is_active, looking_for)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, FALSE, FALSE, ?)`,
       [
         email.trim(),
         hashedPassword,
@@ -107,6 +122,7 @@ exports.register = async (req, res) => {
       cvAttached: role === 'Étudiant' || !!cvAttached,
       cvUrl: null,
       isSuperAdmin: false,
+      isActive: false, // New accounts are INACTIVE until payment validation
       looking: looking || []
     };
 
@@ -161,6 +177,7 @@ exports.getDemoUser = async (req, res) => {
       studentJob: user.student_job,
       cvAttached: !!user.cv_attached,
       isSuperAdmin: !!user.is_super_admin,
+      isActive: Boolean(user.is_active === 1 || user.is_super_admin === 1),
       looking: looking
     });
   } catch (error) {

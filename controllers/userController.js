@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const bcrypt = require('bcryptjs');
 
 exports.getAllUsers = async (req, res) => {
   try {
@@ -43,6 +44,7 @@ exports.getAllUsers = async (req, res) => {
         cvAttached: !!user.cv_attached,
         cvUrl: user.cv_url,
         isSuperAdmin: !!user.is_super_admin,
+        isActive: Boolean(user.is_active === 1 || user.is_super_admin === 1),
         looking: looking
       };
     });
@@ -80,11 +82,34 @@ exports.getUserById = async (req, res) => {
       cvAttached: !!user.cv_attached,
       cvUrl: user.cv_url,
       isSuperAdmin: !!user.is_super_admin,
+      isActive: Boolean(user.is_active === 1 || user.is_super_admin === 1),
       looking: looking
     });
   } catch (error) {
     console.error('getUserById error:', error);
     res.status(500).json({ error: 'Erreur utilisateur' });
+  }
+};
+
+exports.toggleUserActive = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await pool.promise().query('SELECT * FROM users WHERE id = ?', [id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Utilisateur introuvable' });
+
+    const user = rows[0];
+    const newStatus = !user.is_active;
+
+    await pool.promise().query('UPDATE users SET is_active = ? WHERE id = ?', [newStatus, id]);
+
+    res.json({
+      success: true,
+      isActive: newStatus,
+      message: `Statut accès de ${user.name} mis à jour : ${newStatus ? 'ACTIF ✅' : 'EN ATTENTE ⏳'}`
+    });
+  } catch (error) {
+    console.error('toggleUserActive error:', error);
+    res.status(500).json({ error: 'Erreur modification statut utilisateur' });
   }
 };
 
@@ -106,8 +131,6 @@ exports.submitContact = async (req, res) => {
     res.status(500).json({ error: 'Erreur lors de l’envoi du message' });
   }
 };
-
-const bcrypt = require('bcryptjs');
 
 exports.updateProfile = async (req, res) => {
   try {
@@ -159,6 +182,7 @@ exports.updateProfile = async (req, res) => {
         cvAttached: !!user.cv_attached,
         cvUrl: user.cv_url,
         isSuperAdmin: !!user.is_super_admin,
+        isActive: Boolean(user.is_active === 1 || user.is_super_admin === 1),
         looking: lookingArr
       }
     });
@@ -178,4 +202,3 @@ exports.deleteUser = async (req, res) => {
     res.status(500).json({ error: 'Erreur suppression utilisateur' });
   }
 };
-
