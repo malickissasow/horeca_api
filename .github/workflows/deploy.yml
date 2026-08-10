@@ -50,6 +50,8 @@ jobs:
             uploads/**
             .env*
             README.md
+            db/*.sql
+            **/*.sql
 
       - name: Deployment Summary
         run: echo "🎉 API Application deployed strictly to https://api.horecafrica.org"
