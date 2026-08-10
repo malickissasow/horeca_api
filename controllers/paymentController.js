@@ -1,6 +1,6 @@
 const pool = require('../config/db');
 const waveService = require('../services/waveService');
-const { sendInvoiceEmail } = require('../services/emailService');
+const { sendInvoiceEmail, sendOrderReceiptEmail, sendAdminNewOrderNotification } = require('../services/emailService');
 
 // Ensure orders table exists in DB
 async function ensureOrdersTable() {
@@ -106,9 +106,26 @@ exports.submitManualPayment = async (req, res) => {
       ]
     );
 
+    const orderObj = {
+      id: result.insertId,
+      reference,
+      customer_name: customerName.trim(),
+      customer_email: customerEmail.trim(),
+      customer_phone: customerPhone,
+      company_name: companyName,
+      pack_name: packName,
+      amount,
+      payment_method: method,
+      transaction_ref: transactionRef
+    };
+
+    // Trigger automatic order receipt email to customer & alert to SuperAdmin
+    sendOrderReceiptEmail(orderObj).catch(e => console.warn('Order receipt email background error:', e.message));
+    sendAdminNewOrderNotification(orderObj).catch(e => console.warn('Admin order notification background error:', e.message));
+
     res.status(201).json({
       success: true,
-      message: 'Votre demande de paiement manuel a été soumise avec succès. L\'administrateur va valider le transfert et vous envoyer votre facture par email.',
+      message: 'Votre demande de paiement manuel a été soumise avec succès. L\'administrateur va valider le transfert et vous envoyer votre facture et vos accès par email.',
       orderId: result.insertId,
       reference
     });
@@ -129,7 +146,7 @@ exports.getAllOrders = async (req, res) => {
   }
 };
 
-// 4. SuperAdmin Verify Manual Payment & Send Invoice
+// 4. SuperAdmin Verify Manual Payment & Send Invoice + Access
 exports.verifyManualPayment = async (req, res) => {
   try {
     const { orderId, action, adminNotes } = req.body;
@@ -153,14 +170,14 @@ exports.verifyManualPayment = async (req, res) => {
         [invoiceNumber, adminNotes || 'Paiement manuel validé par SuperAdmin', orderId]
       );
 
-      // Trigger automatic invoice email
+      // Trigger automatic invoice & access activation email
       order.status = 'COMPLETED';
       order.invoice_number = invoiceNumber;
       await sendInvoiceEmail(order);
 
       return res.json({
         success: true,
-        message: `Paiement N° ${order.reference} validé avec succès ! La facture ${invoiceNumber} a été envoyée par email à ${order.customer_email}.`,
+        message: `Paiement N° ${order.reference} validé avec succès ! La facture ${invoiceNumber} et l'activation des accès ont été envoyées par email à ${order.customer_email}.`,
         invoiceNumber
       });
     } else {
