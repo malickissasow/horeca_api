@@ -135,6 +135,13 @@ server.on('error', (err) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`🚀 HORECA AFRICA API & WebSockets running on port ${PORT}`);
-});
+if (typeof(PhusionPassenger) !== 'undefined') {
+  PhusionPassenger.configure({ autoInstall: false });
+  server.listen('passenger', () => {
+    console.log('🚀 HORECA AFRICA API running under Phusion Passenger');
+  });
+} else {
+  server.listen(PORT, () => {
+    console.log(`🚀 HORECA AFRICA API & WebSockets running on port ${PORT}`);
+  });
+}
