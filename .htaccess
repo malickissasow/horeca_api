@@ -1,14 +1,8 @@
-# Hostinger Node.js Configuration
+# Hostinger LiteSpeed / Node.js Express Request Routing
 <IfModule mod_headers.c>
     Header always set Access-Control-Allow-Origin "*"
     Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
     Header always set Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-</IfModule>
-
-<IfModule mod_passenger.c>
-    PassengerEnabled on
-    PassengerAppType node
-    PassengerStartupFile server.js
 </IfModule>
 
 RewriteEngine On
@@ -16,3 +10,8 @@ RewriteEngine On
 # OPTIONS preflight
 RewriteCond %{REQUEST_METHOD} OPTIONS
 RewriteRule ^(.*)$ - [R=200,L]
+
+# Route all requests to Node server.js with PT (passthrough)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ server.js/$1 [PT,L]
