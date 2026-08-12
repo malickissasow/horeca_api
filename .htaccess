@@ -1,4 +1,4 @@
-# Hostinger Apache / LiteSpeed CORS & Node.js Routing Configuration
+# Hostinger Apache / LiteSpeed CORS Configuration for Node.js Application
 <IfModule mod_headers.c>
     Header always set Access-Control-Allow-Origin "*"
     Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
@@ -7,11 +7,6 @@
 
 RewriteEngine On
 
-# 1. Direct 200 response for OPTIONS preflight
+# Handle OPTIONS preflight requests directly
 RewriteCond %{REQUEST_METHOD} OPTIONS
 RewriteRule ^(.*)$ - [R=200,L]
-
-# 2. Redirect all API routes to Node server.js handler
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(.*)$ server.js [QSA,L]
