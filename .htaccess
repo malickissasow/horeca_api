@@ -1,19 +1,18 @@
-# Hostinger Node.js Application Setup (Phusion Passenger)
-<IfModule mod_passenger.c>
-    PassengerEnabled on
-    PassengerAppType node
-    PassengerStartupFile server.js
-</IfModule>
-
-# Force CORS Headers on all responses
+# Hostinger Node.js Configuration
 <IfModule mod_headers.c>
     Header always set Access-Control-Allow-Origin "*"
     Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
     Header always set Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization"
 </IfModule>
 
+<IfModule mod_passenger.c>
+    PassengerEnabled on
+    PassengerAppType node
+    PassengerStartupFile server.js
+</IfModule>
+
 RewriteEngine On
 
-# Handle OPTIONS preflight requests
+# OPTIONS preflight
 RewriteCond %{REQUEST_METHOD} OPTIONS
 RewriteRule ^(.*)$ - [R=200,L]
