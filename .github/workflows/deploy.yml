@@ -35,24 +35,17 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: 📤 FTP Deploy API Backend to Hostinger
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          server: 92.113.24.18
-          username: u208608546.api.horecafrica.org
-          password: B5@9ll@c
-          server-dir: nodejs/
-          protocol: ftps
-          security: loose
-          exclude: |
-            **/.git*
-            **/.git*/**
-            node_modules/**
-            uploads/**
-            .env*
-            README.md
-            db/*.sql
-            **/*.sql
+          python-version: '3.x'
+
+      - name: 📤 FTP Deploy API Backend to Hostinger
+        run: python deploy_api_ftp.py
+        env:
+          FTP_HOST: 92.113.24.18
+          FTP_USER: u208608546.api.horecafrica.org
+          FTP_PASS: B5@9ll@c
 
       - name: Deployment Summary
         run: echo "🎉 API Application deployed strictly to https://api.horecafrica.org"
