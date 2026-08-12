@@ -40,6 +40,14 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
+// Sanitize URL path if Passenger/Apache prepends /server.js
+app.use((req, res, next) => {
+  if (req.url.startsWith('/server.js')) {
+    req.url = req.url.replace('/server.js', '') || '/';
+  }
+  next();
+});
+
 app.use(express.json());
 
 // Socket.io Setup with CORS
@@ -87,7 +95,7 @@ app.get('/', (req, res) => {
 });
 
 // Health Check
-app.get('/api/health', (req, res) => {
+app.get(['/api/health', '/health'], (req, res) => {
   res.json({
     status: 'OK',
     version: '1.0.0',
@@ -98,7 +106,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // DB Connection Diagnostic Check
-app.get('/api/db-check', async (req, res) => {
+app.get(['/api/db-check', '/db-check'], async (req, res) => {
   try {
     const [tables] = await pool.promise().query('SHOW TABLES');
     const [users] = await pool.promise().query('SELECT id, email, name, role FROM users');
@@ -108,15 +116,15 @@ app.get('/api/db-check', async (req, res) => {
   }
 });
 
-// API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/meetings', meetingRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/jobs', jobRoutes);
-app.use('/api/upload', uploadRoutes);
-app.use('/api/messages', messageRoutes);
-app.use('/api/payment', paymentRoutes);
+// API Routes (supporting both /api/* and /*)
+app.use(['/api/auth', '/auth'], authRoutes);
+app.use(['/api/users', '/users'], userRoutes);
+app.use(['/api/meetings', '/meetings'], meetingRoutes);
+app.use(['/api/admin', '/admin'], adminRoutes);
+app.use(['/api/jobs', '/jobs'], jobRoutes);
+app.use(['/api/upload', '/upload'], uploadRoutes);
+app.use(['/api/messages', '/messages'], messageRoutes);
+app.use(['/api/payment', '/payment'], paymentRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {
