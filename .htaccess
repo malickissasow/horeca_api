@@ -1,4 +1,11 @@
-# Hostinger Apache / LiteSpeed CORS Configuration for Node.js Application
+# Hostinger Node.js Application Setup (Phusion Passenger)
+<IfModule mod_passenger.c>
+    PassengerEnabled on
+    PassengerAppType node
+    PassengerStartupFile server.js
+</IfModule>
+
+# Force CORS Headers on all responses
 <IfModule mod_headers.c>
     Header always set Access-Control-Allow-Origin "*"
     Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
@@ -7,6 +14,6 @@
 
 RewriteEngine On
 
-# Handle OPTIONS preflight requests directly
+# Handle OPTIONS preflight requests
 RewriteCond %{REQUEST_METHOD} OPTIONS
 RewriteRule ^(.*)$ - [R=200,L]
