@@ -28,8 +28,27 @@ $request_uri = strtok($_SERVER["REQUEST_URI"], "?");
 $method = $_SERVER["REQUEST_METHOD"];
 $input = json_decode(file_get_contents("php://input"), true) ?? $_POST;
 
-// 1. Health Check
-if ($request_uri === "/api/health" || $request_uri === "/health" || $request_uri === "/") {
+// Root Welcome Route & Health Check
+if ($request_uri === "/" || $request_uri === "" || $request_uri === "/index.php") {
+    echo json_encode([
+        "name" => "HORECA AFRICA 2026 API",
+        "status" => "ONLINE",
+        "version" => "1.0.0",
+        "documentation" => "https://api.horecafrica.org/api/health",
+        "endpoints" => [
+            "health" => "/api/health",
+            "auth" => "/api/auth",
+            "users" => "/api/users",
+            "meetings" => "/api/meetings",
+            "jobs" => "/api/jobs",
+            "admin" => "/api/admin",
+            "payment" => "/api/payment"
+        ]
+    ]);
+    exit();
+}
+
+if ($request_uri === "/api/health" || $request_uri === "/health") {
     echo json_encode([
         "status" => "OK",
         "version" => "1.0.0",

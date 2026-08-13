@@ -1,20 +1,19 @@
-# Hostinger Node.js Application Setup
-<IfModule mod_passenger.c>
-    PassengerEnabled on
-    PassengerAppType node
-    PassengerStartupFile server.js
-</IfModule>
+# Hostinger PHP API Routing - Entry Point index.php
+DirectoryIndex index.php index.html
 
-# Force CORS headers on all responses including 404/500 errors
 <IfModule mod_headers.c>
     Header always set Access-Control-Allow-Origin "*"
     Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
     Header always set Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization"
 </IfModule>
 
-<IfModule mod_rewrite.c>
-    RewriteEngine On
-    RewriteBase /
-    RewriteCond %{REQUEST_METHOD} OPTIONS
-    RewriteRule ^(.*)$ - [R=200,L]
-</IfModule>
+RewriteEngine On
+
+# 1. Direct OPTIONS preflight response
+RewriteCond %{REQUEST_METHOD} OPTIONS
+RewriteRule ^(.*)$ - [R=200,L]
+
+# 2. Route all API requests to index.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php [QSA,L]
