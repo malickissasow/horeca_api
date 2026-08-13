@@ -59,6 +59,17 @@ if ($request_uri === "/api/health" || $request_uri === "/health") {
     exit();
 }
 
+// Socket.io Polling Handshake & Session Handler
+if (strpos($request_uri, "/socket.io") === 0) {
+    header("Content-Type: text/plain; charset=UTF-8");
+    if (isset($_GET["sid"])) {
+        echo "6"; // Socket.io Engine.IO NOOP packet
+        exit();
+    }
+    echo '0{"sid":"horeca_socket_session_' . time() . '","upgrades":[],"pingInterval":25000,"pingTimeout":20000}';
+    exit();
+}
+
 // 2. Manual Payment Submission
 if (($request_uri === "/api/payment/manual/submit" || $request_uri === "/payment/manual/submit") && $method === "POST") {
     $customerName = trim($input["customerName"] ?? "");
