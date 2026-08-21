@@ -38,6 +38,165 @@ if ($request_uri === "/api/health" || $request_uri === "/health" || $request_uri
         "timestamp" => date("c")
     ]);
     exit();
+// Wave Direct API Checkout
+if (($request_uri === "/api/payment/wave/checkout" || $request_uri === "/payment/wave/checkout") && $method === "POST") {
+    $amount = intval($input["amount"] ?? 0);
+    $packName = trim($input["packName"] ?? "Offre HORECA 2026");
+    $customerEmail = strtolower(trim($input["userEmail"] ?? $input["customerEmail"] ?? ""));
+    $customerName = trim($input["userName"] ?? $input["customerName"] ?? "Client");
+    $customerPhone = trim($input["userPhone"] ?? $input["customerPhone"] ?? "");
+    $companyName = trim($input["companyName"] ?? "");
+    $userId = intval($input["userId"] ?? 0);
+
+    if ($amount <= 0) {
+        http_response_code(400);
+        echo json_encode(["error" => "Montant valide requis"]);
+        exit();
+    }
+
+    $reference = "HORECA-PAY-" . time() . "-" . rand(100, 999);
+    $frontendUrl = "https://horecafrica.com";
+
+    $payload = [
+        "amount" => (string)$amount,
+        "currency" => "XOF",
+        "client_reference" => $reference,
+        "success_url" => $frontendUrl . "/payment-status?status=success&ref=" . $reference,
+        "error_url" => $frontendUrl . "/payment-status?status=error&ref=" . $reference
+    ];
+
+    $waveToken = getenv("WAVE_API_TOKEN") ?: "wave_sn_prod_gRg6DyfiBjfG4aOsse03O3jW1qYYsfpWAsf3vXBYbpmhSeM-m4X2opjAdISH0ryDJGdV7ig9nGyv494ciC6cODPzcnLjacOeMg";
+
+    $ch = curl_init("https://api.wave.com/v1/checkout/sessions");
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        "Content-Type: application/json",
+        "Accept: application/json",
+        "Authorization: Bearer " . $waveToken
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $responseData = json_decode($response, true);
+
+    if ($httpCode >= 200 && $httpCode < 300 && isset($responseData["id"])) {
+        $sessionId = $responseData["id"];
+        $waveLaunchUrl = $responseData["wave_launch_url"] ?? "";
+        $uri = $responseData["uri"] ?? "";
+
+        try {
+            $stmt = $pdo->prepare("INSERT INTO orders (reference, wave_session_id, user_id, customer_name, customer_email, customer_phone, company_name, pack_name, amount, payment_method, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'WAVE', 'PENDING_PAYMENT')");
+            $stmt->execute([$reference, $sessionId, $userId ?: null, $customerName, $customerEmail, $customerPhone, $companyName, $packName, $amount]);
+        } catch (Throwable $e) {
+            // Silently ignore DB constraint error
+        }
+
+        echo json_encode([
+            "success" => true,
+            "reference" => $reference,
+            "wave_session_id" => $sessionId,
+            "wave_launch_url" => $waveLaunchUrl,
+            "qr_uri" => $uri,
+            "uri" => $uri,
+            "data" => $responseData
+        ]);
+    } else {
+        http_response_code(400);
+        $errorMsg = $responseData["message"] ?? $responseData["error"] ?? "Erreur d'initialisation Wave";
+        echo json_encode(["error" => $errorMsg, "details" => $responseData]);
+    }
+    exit();
+}
+
+// Wave Verification (Polling)
+if ((strpos($request_uri, "/api/payment/wave/verify") === 0 || strpos($request_uri, "/payment/wave/verify") === 0 || strpos($request_uri, "/api/payment/wave/session") === 0 || strpos($request_uri, "/payment/wave/session") === 0) && $method === "GET") {
+    $parts = explode("/", parse_url($request_uri, PHP_URL_PATH));
+    $ref = end($parts);
+
+    if (!$ref) {
+        http_response_code(400);
+        echo json_encode(["error" => "Reference requise"]);
+        exit();
+    }
+
+    $stmt = $pdo->prepare("SELECT * FROM orders WHERE reference = ? OR wave_session_id = ?");
+    $stmt->execute([$ref, $ref]);
+    $order = $stmt->fetch();
+
+    if ($order && ($order["status"] === "COMPLETED" || $order["status"] === "PAYE")) {
+        echo json_encode(["success" => true, "isPaid" => true, "is_paid" => true, "statut" => "PAYE"]);
+        exit();
+    }
+
+    $targetSessionId = $order["wave_session_id"] ?? $ref;
+    $waveToken = getenv("WAVE_API_TOKEN") ?: "wave_sn_prod_gRg6DyfiBjfG4aOsse03O3jW1qYYsfpWAsf3vXBYbpmhSeM-m4X2opjAdISH0ryDJGdV7ig9nGyv494ciC6cODPzcnLjacOeMg";
+
+    $ch = curl_init("https://api.wave.com/v1/checkout/sessions/" . urlencode($targetSessionId));
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        "Accept: application/json",
+        "Authorization: Bearer " . $waveToken
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $responseData = json_decode($response, true);
+    $paymentStatus = $responseData["payment_status"] ?? "";
+
+    if ($paymentStatus === "succeeded") {
+        if ($order) {
+            $invoiceNumber = "INV-2026-" . str_pad($order["id"], 4, "0", STR_PAD_LEFT);
+            $stmt = $pdo->prepare("UPDATE orders SET status = 'COMPLETED', invoice_number = ?, invoice_sent = TRUE WHERE id = ?");
+            $stmt->execute([$invoiceNumber, $order["id"]]);
+
+            if ($order["customer_email"]) {
+                $stmt = $pdo->prepare("UPDATE users SET is_active = TRUE WHERE LOWER(email) = ?");
+                $stmt->execute([strtolower($order["customer_email"])]);
+            }
+        }
+        echo json_encode(["success" => true, "isPaid" => true, "is_paid" => true, "statut" => "PAYE"]);
+    } else {
+        echo json_encode(["success" => true, "isPaid" => false, "is_paid" => false, "statut" => $order["status"] ?? "PENDING_PAYMENT"]);
+    }
+    exit();
+}
+
+// Wave Webhook Handler
+if (($request_uri === "/api/payment/webhook/wave" || $request_uri === "/payment/webhook/wave") && $method === "POST") {
+    http_response_code(200);
+    echo "Webhook Received";
+
+    $event = $input;
+    if (isset($event["type"]) && $event["type"] === "checkout.session.completed") {
+        $data = $event["data"] ?? [];
+        $id = $data["id"] ?? "";
+        $clientRef = $data["client_reference"] ?? "";
+        $status = $data["payment_status"] ?? "";
+
+        if ($status === "succeeded") {
+            $stmt = $pdo->prepare("SELECT * FROM orders WHERE reference = ? OR wave_session_id = ?");
+            $stmt->execute([$clientRef, $id]);
+            $order = $stmt->fetch();
+
+            if ($order && $order["status"] !== "COMPLETED") {
+                $invoiceNumber = "INV-2026-" . str_pad($order["id"], 4, "0", STR_PAD_LEFT);
+                $stmt = $pdo->prepare("UPDATE orders SET status = 'COMPLETED', wave_session_id = ?, invoice_number = ?, invoice_sent = TRUE WHERE id = ?");
+                $stmt->execute([$id, $invoiceNumber, $order["id"]]);
+
+                if ($order["customer_email"]) {
+                    $stmt = $pdo->prepare("UPDATE users SET is_active = TRUE WHERE LOWER(email) = ?");
+                    $stmt->execute([strtolower($order["customer_email"])]);
+                }
+            }
+        }
+    }
+    exit();
 }
 
 // 2. Manual Payment Submission

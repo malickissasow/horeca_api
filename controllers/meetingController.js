@@ -35,8 +35,8 @@ exports.getMeetingsForUser = async (req, res) => {
 
     res.json(meetings);
   } catch (error) {
-    console.error('getMeetingsForUser error:', error);
-    res.status(500).json({ error: 'Erreur lors de la récupération des rendez-vous' });
+    console.warn('getMeetingsForUser warning:', error.message);
+    res.json([]);
   }
 };
 

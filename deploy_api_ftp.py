@@ -9,12 +9,13 @@ FTP_PORT = int(os.getenv("FTP_PORT", "21"))
 FTP_USER = os.getenv("FTP_USER", "u208608546.api.horecafrica.org")
 FTP_PASS = os.getenv("FTP_PASS", "B5@9ll@c")
 LOCAL_DIR = os.getenv("LOCAL_DIR", ".")
+REMOTE_DIR = os.getenv("REMOTE_DIR", "public_html")
 
-EXCLUDE_DIRS = {".git", ".github", "node_modules", "uploads", "tmp"}
-EXCLUDE_FILES = {".env", "README.md", "deploy_api_ftp.py"}
+EXCLUDE_DIRS = {".git", ".github", "node_modules", "uploads", "tests", "tmp"}
+EXCLUDE_FILES = {".env", ".env.local", ".env.production", ".env.example", ".DS_Store", "README.md"}
 
 def connect_ftp():
-    print(f"🚀 Connecting to Hostinger FTP {FTP_HOST}:{FTP_PORT}...")
+    print(f"🚀 Connecting to Hostinger FTP {FTP_HOST}:{FTP_PORT} via FTPS (Explicit TLS)...")
     for attempt in range(1, 4):
         try:
             print(f"🔒 Attempt {attempt}/3: Connecting via FTPS (TLS)...")
@@ -24,48 +25,36 @@ def connect_ftp():
 
             ftps = ftplib.FTP_TLS(context=context)
             ftps.trust_server_pasv_ipv4_address = True
-            ftps.connect(FTP_HOST, FTP_PORT, timeout=20)
+            ftps.connect(FTP_HOST, FTP_PORT, timeout=45)
             ftps.login(FTP_USER, FTP_PASS)
-            ftps.prot_p()
+            ftps.prot_p()  # Enforce encrypted data channel
             ftps.set_pasv(True)
-            print("🔒 Connected & Logged in via FTPS!")
+            print("🔒 Connected & Logged in via FTPS (Encrypted Data Channel)!")
             return ftps
         except Exception as e:
             print(f"⚠️ FTPS Attempt {attempt} failed ({e})")
-
-        try:
-            print(f"⚡ Attempt {attempt}/3: Connecting via Plain FTP...")
-            ftp = ftplib.FTP()
-            ftp.trust_server_pasv_ipv4_address = True
-            ftp.connect(FTP_HOST, FTP_PORT, timeout=20)
-            ftp.login(FTP_USER, FTP_PASS)
-            ftp.set_pasv(True)
-            print("✅ Connected & Logged in via Plain FTP!")
-            return ftp
-        except Exception as e:
-            print(f"⚠️ Plain FTP Attempt {attempt} failed ({e})")
-
-        if attempt < 3:
-            time.sleep(3)
+            if attempt < 3:
+                print("⏳ Waiting 4 seconds before next retry...")
+                time.sleep(4)
 
     raise RuntimeError(f"❌ Failed to connect to Hostinger FTP {FTP_HOST} after 3 attempts.")
 
-def ensure_remote_dir(ftp, base_path, rel_dir):
-    current = base_path.rstrip("/")
-    if rel_dir and rel_dir != ".":
-        dirs = [d for d in rel_dir.split(os.sep) if d]
-        for d in dirs:
-            current += "/" + d
+def ensure_remote_dir(ftp, remote_path):
+    dirs = [d for d in remote_path.split("/") if d]
+    current = ""
+    for d in dirs:
+        current += "/" + d
+        try:
+            ftp.cwd(current)
+        except ftplib.error_perm:
             try:
-                ftp.cwd(current)
-            except ftplib.error_perm:
-                try:
-                    ftp.mkd(current)
-                    print(f"📁 Created remote directory: {current}")
-                except Exception as e:
-                    print(f"Warning creating {current}: {e}")
+                ftp.mkd(current)
+                print(f"📁 Created remote directory: {current}")
+            except Exception as e:
+                print(f"Warning creating {current}: {e}")
 
 def safe_upload_file(ftp, local_file, file_name):
+    # Delete any leftover Hostinger .in.filename. temp lock file
     try:
         ftp.delete(f".in.{file_name}.")
     except Exception:
@@ -86,62 +75,53 @@ def safe_upload_file(ftp, local_file, file_name):
         except Exception as e2:
             print(f"Warning storing {file_name}: {e2}")
 
-def deploy_to_target(ftp, target_base_dir):
-    print(f"\n📤 Uploading API files to target directory: {target_base_dir}...")
+def deploy():
+    ftp = connect_ftp()
+
+    print(f"📤 Deploying API backend files to Hostinger Passenger dir: {REMOTE_DIR}/ (preserving uploads & .env)...")
     file_count = 0
 
     for root, dirs, files in os.walk(LOCAL_DIR):
-        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and not d.startswith(".")]
+        # Filter excluded directories in-place
+        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+
         rel_path = os.path.relpath(root, LOCAL_DIR)
-
-        ensure_remote_dir(ftp, target_base_dir, rel_path)
-
         if rel_path == ".":
-            target_cwd = target_base_dir
+            target_remote = REMOTE_DIR
         else:
-            target_cwd = f"{target_base_dir.rstrip('/')}/{rel_path.replace(os.sep, '/')}"
+            target_remote = f"{REMOTE_DIR}/{rel_path.replace(os.sep, '/')}"
 
-        try:
-            ftp.cwd(target_cwd)
-        except Exception as e:
-            print(f"Error CWD to {target_cwd}: {e}")
-            continue
+        ensure_remote_dir(ftp, target_remote)
+        ftp.cwd(f"/{target_remote}")
 
         for file in files:
-            if file in EXCLUDE_FILES or file.endswith(".sql"):
+            if file in EXCLUDE_FILES or file.startswith(".env"):
+                print(f"  ⏭️ Skipping config/env file: {file}")
                 continue
+
             local_file = os.path.join(root, file)
-            print(f"  [{target_base_dir}] -> {rel_path}/{file}")
+            print(f"  -> Uploading {rel_path}/{file} to /{target_remote}...")
             safe_upload_file(ftp, local_file, file)
             file_count += 1
 
-    print(f"✅ Target {target_base_dir} updated with {file_count} files.")
-
-def main():
-    ftp = connect_ftp()
-
-    # Determine existing target directories
-    root_nlst = []
+    # Restart Node process via Passenger / Hostinger restart trigger
     try:
-        root_nlst = ftp.nlst()
-    except Exception:
-        pass
-
-    targets = ["/public_html"]
-    if "nodejs" in root_nlst:
-        targets.append("/public_html/nodejs")
-
-    print(f"🎯 Detected target deployment locations on Hostinger: {targets}")
-
-    for target in targets:
-        deploy_to_target(ftp, target)
+        ensure_remote_dir(ftp, f"{REMOTE_DIR}/tmp")
+        ftp.cwd(f"/{REMOTE_DIR}/tmp")
+        with open("restart_trigger.txt", "w") as f_tmp:
+            f_tmp.write("restart")
+        safe_upload_file(ftp, "restart_trigger.txt", "restart.txt")
+        os.remove("restart_trigger.txt")
+        print("🔄 Touched tmp/restart.txt to restart Hostinger Node.js Passenger process!")
+    except Exception as e:
+        print(f"Note on restart trigger: {e}")
 
     try:
         ftp.quit()
     except Exception:
         pass
 
-    print(f"\n🎉 All API deployment targets updated successfully!")
+    print(f"🎉 API Deployment completed! {file_count} files successfully uploaded to https://api.horecafrica.org")
 
 if __name__ == "__main__":
-    main()
+    deploy()
