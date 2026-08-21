@@ -38,6 +38,8 @@ if ($request_uri === "/api/health" || $request_uri === "/health" || $request_uri
         "timestamp" => date("c")
     ]);
     exit();
+}
+
 // Wave Direct API Checkout
 if (($request_uri === "/api/payment/wave/checkout" || $request_uri === "/payment/wave/checkout") && $method === "POST") {
     $amount = intval($input["amount"] ?? 0);

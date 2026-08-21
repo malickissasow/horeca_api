@@ -68,6 +68,8 @@ if (strpos($request_uri, "/socket.io") === 0) {
     }
     echo '0{"sid":"horeca_socket_session_' . time() . '","upgrades":[],"pingInterval":25000,"pingTimeout":20000}';
     exit();
+}
+
 // Wave Direct API Checkout
 if (($request_uri === "/api/payment/wave/checkout" || $request_uri === "/payment/wave/checkout") && $method === "POST") {
     $amount = intval($input["amount"] ?? 0);
